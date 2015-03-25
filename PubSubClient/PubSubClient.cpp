@@ -8,42 +8,47 @@
 #include <string.h>
 
 PubSubClient::PubSubClient() {
-   this->_client = NULL;
+   //this->_client = NULL;
    this->stream = NULL;
+	this->socket = NULL;
 }
 
-PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client) {
-   this->_client = &client;
+PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int)) {
+   //this->_client = &client;
    this->callback = callback;
    this->ip = ip;
    this->port = port;
    this->domain = NULL;
    this->stream = NULL;
+   this->socket = NULL;
 }
 
-PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client) {
-   this->_client = &client;
+PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int)) {
+   //this->_client = &client;
    this->callback = callback;
    this->domain = domain;
    this->port = port;
    this->stream = NULL;
+   this->socket = NULL;
 }
 
-PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client, Stream& stream) {
-   this->_client = &client;
+PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Stream& stream) {
+   //this->_client = &client;
    this->callback = callback;
    this->ip = ip;
    this->port = port;
    this->domain = NULL;
    this->stream = &stream;
+   this->socket = NULL;
 }
 
-PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client, Stream& stream) {
-   this->_client = &client;
+PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Stream& stream) {
+   //this->_client = &client;
    this->callback = callback;
    this->domain = domain;
    this->port = port;
    this->stream = &stream;
+   this->socket = NULL;
 }
 
 boolean PubSubClient::connect(char *id) {
@@ -59,6 +64,7 @@ boolean PubSubClient::connect(char *id, char* willTopic, uint8_t willQos, uint8_
    return connect(id,NULL,NULL,willTopic,willQos,willRetain,willMessage);
 }
 
+
 boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic, uint8_t willQos, uint8_t willRetain, char* willMessage) {
    if (!connected()) {
       int result = 0;
@@ -66,9 +72,9 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
       // PRINTLNF("trying TCP");
 
       if (domain != NULL) {
-        result = _client->connect(this->domain, this->port);
+        result = deIPcK.tcpConnect(this->domain, this->port, *socket);
       } else {
-        result = _client->connect(this->ip, this->port);
+        result = deIPcK.tcpConnect(this->ip, this->port, *socket);
       }
       
       if (result) {
@@ -119,11 +125,11 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
          
          lastInActivity = lastOutActivity = millis();
          
-         while (!_client->available()) {
+         while (!socket->available()) {
             unsigned long t = millis();
             if (t-lastInActivity > MQTT_KEEPALIVE*1000UL) {
                PRINTLNF("Err: MQTT_KEEPALIVE timeout");
-               _client->stop();
+               socket->close();
                return false;
             }
          }
@@ -142,13 +148,13 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
       else{
          PRINTLNF("Err: TCP");
       }
-      _client->stop();
+      socket->close();
    }
    return false;
 }
 
 uint8_t PubSubClient::readByte() {
-   while(!_client->available()) {}
+   while(!socket->available()) {}
    char c = _client->read();
    PRINTCH(c, HEX);
    PRINTCH(',');
@@ -214,11 +220,13 @@ uint16_t PubSubClient::readPacket(uint8_t* lengthLength) {
 
 boolean PubSubClient::loop() {
 
+
+
    if (connected()) {
       unsigned long t = millis();
       if ((t - lastInActivity > MQTT_KEEPALIVE*1000UL) || (t - lastOutActivity > MQTT_KEEPALIVE*1000UL)) {
          if (pingOutstanding) {
-            _client->stop();
+            socket->close();
             PRINTLNF("Err: Ping timed out");
             return false;
          } else {
@@ -231,7 +239,7 @@ boolean PubSubClient::loop() {
             pingOutstanding = true;
          }
       }
-      if (_client->available()) {
+      if (socket->available()) {
          uint8_t llen;
          uint16_t len = readPacket(&llen);
          uint16_t msgId = 0;
@@ -482,8 +490,10 @@ void PubSubClient::disconnect() {
 
    buffer[0] = MQTTDISCONNECT;
    buffer[1] = 0;
-   _client->write(buffer,2);
-   _client->stop();
+   socket->writeByte(buffer[0]);
+   socket->writeByte(buffer[1]);
+   //TODO: better way to do this? writeStream?
+   socket->close();
    lastInActivity = lastOutActivity = millis();
 
    PRINTLN();
@@ -505,11 +515,11 @@ uint16_t PubSubClient::writeString(char* string, uint8_t* buf, uint16_t pos) {
 
 boolean PubSubClient::connected() {
    boolean rc;
-   if (_client == NULL ) {
+   if (socket == NULL) {
       rc = false;
    } else {
-      rc = (int)_client->connected();
-      if (!rc) _client->stop();
+      rc = socket->isConnected(ipstatus);
+      if (!rc) socket->close();
    }
    return rc;
 }
