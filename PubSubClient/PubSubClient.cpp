@@ -8,29 +8,31 @@
 #include <string.h>
 
 PubSubClient::PubSubClient() {
-   this->_client = NULL;
+   //this->_client = NULL;
    this->stream = NULL;
 }
 
-PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client) {
-   this->_client = &client;
+PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), TCPSocket& tcpsocket) {
+   //this->_client = &client;
    this->callback = callback;
    this->ip = ip;
    this->port = port;
    this->domain = NULL;
    this->stream = NULL;
+   this->socket = &tcpsocket;
 }
 
-PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client) {
-   this->_client = &client;
+PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), TCPSocket& tcpsocket) {
+   //this->_client = &client;
    this->callback = callback;
    this->domain = domain;
    this->port = port;
    this->stream = NULL;
+   this->socket = &tcpsocket;
 }
 
-PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client, Stream& stream) {
-   this->_client = &client;
+PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Stream& stream) {
+   //this->_client = &client;
    this->callback = callback;
    this->ip = ip;
    this->port = port;
@@ -38,8 +40,8 @@ PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,ui
    this->stream = &stream;
 }
 
-PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client, Stream& stream) {
-   this->_client = &client;
+PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Stream& stream) {
+   //this->_client = &client;
    this->callback = callback;
    this->domain = domain;
    this->port = port;
@@ -59,16 +61,22 @@ boolean PubSubClient::connect(char *id, char* willTopic, uint8_t willQos, uint8_
    return connect(id,NULL,NULL,willTopic,willQos,willRetain,willMessage);
 }
 
+
 boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic, uint8_t willQos, uint8_t willRetain, char* willMessage) {
    if (!connected()) {
       int result = 0;
       
       // PRINTLNF("trying TCP");
 
+     if (this->socket == NULL)
+     {
+       Serial.println("null socket.");
+     }
+
       if (domain != NULL) {
-        result = _client->connect(this->domain, this->port);
+	result = blockingConnect(this->domain, this->port, *(this->socket));
       } else {
-        result = _client->connect(this->ip, this->port);
+	result = blockingConnect(this->domain, this->port, *(this->socket));
       }
       
       if (result) {
@@ -115,18 +123,20 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
 
          // PRINTLNF("sending MQTTCONNECT");
 
-         write(MQTTCONNECT,buffer,length-5);
+         int out = write(MQTTCONNECT,buffer,length-5);
          
          lastInActivity = lastOutActivity = millis();
          
-         while (!_client->available()) {
+         while (!socket_available()) {
             unsigned long t = millis();
             if (t-lastInActivity > MQTT_KEEPALIVE*1000UL) {
                PRINTLNF("Err: MQTT_KEEPALIVE timeout");
-               _client->stop();
+               socket->close();
                return false;
             }
          }
+
+
          uint8_t llen;
          uint16_t len = readPacket(&llen);
          
@@ -142,14 +152,14 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
       else{
          PRINTLNF("Err: TCP");
       }
-      _client->stop();
+      socket->close();
    }
    return false;
 }
 
 uint8_t PubSubClient::readByte() {
-   while(!_client->available()) {}
-   char c = _client->read();
+   while(!socket_available()) {}
+   char c = socket->readByte();
    PRINTCH(c, HEX);
    PRINTCH(',');
    return c;
@@ -214,24 +224,26 @@ uint16_t PubSubClient::readPacket(uint8_t* lengthLength) {
 
 boolean PubSubClient::loop() {
 
+
+
    if (connected()) {
       unsigned long t = millis();
       if ((t - lastInActivity > MQTT_KEEPALIVE*1000UL) || (t - lastOutActivity > MQTT_KEEPALIVE*1000UL)) {
          if (pingOutstanding) {
-            _client->stop();
+            socket->close();
             PRINTLNF("Err: Ping timed out");
             return false;
          } else {
             buffer[0] = MQTTPINGREQ;
             buffer[1] = 0;
             // PRINTLNF("sending MQTTPINGREQ");
-            _client->write(buffer,2);
+            blockingSocketWrite(buffer,2);
             lastOutActivity = t;
             lastInActivity = t;
             pingOutstanding = true;
          }
       }
-      if (_client->available()) {
+      if (socket_available()) {
          uint8_t llen;
          uint16_t len = readPacket(&llen);
          uint16_t msgId = 0;
@@ -259,7 +271,7 @@ boolean PubSubClient::loop() {
                     buffer[2] = (msgId >> 8);
                     buffer[3] = (msgId & 0xFF);
                     // PRINTLNF("sending MQTTPUBACK");
-                    _client->write(buffer,4);
+                    blockingSocketWrite(buffer,4);
                     lastOutActivity = t;
 
                   } else {
@@ -272,7 +284,7 @@ boolean PubSubClient::loop() {
                buffer[0] = MQTTPINGRESP;
                buffer[1] = 0;
                // PRINTLNF("sending MQTTPINGRESP");
-               _client->write(buffer,2);
+               blockingSocketWrite(buffer,2);
             } else if (type == MQTTPINGRESP) {
                // PRINTLNF("MQTTPINGRESP");
                pingOutstanding = false;
@@ -369,11 +381,11 @@ boolean PubSubClient::publish_P(char* topic, uint8_t* PROGMEM payload, unsigned 
    
    pos = writeString(topic,buffer,pos);
    
-   rc += _client->write(buffer,pos);
+   rc += blockingSocketWrite(buffer,pos);
    
    for (i=0;i<plength;i++) {
       char c = (char)pgm_read_byte_near(payload + i);
-      rc += _client->write(c);
+      rc += socket->writeByte(c);
    }
       
    PRINTLN();
@@ -412,7 +424,7 @@ boolean PubSubClient::write(uint8_t header, uint8_t* buf, uint16_t length, bool 
    if(sendData){
 
       WRITE(buf+(4-llen),length+1+llen);
-      rc = _client->write(buf+(4-llen),length+1+llen);
+      rc = blockingSocketWrite(buf+(4-llen),length+1+llen);
       PRINTLN();
 
       lastOutActivity = millis();
@@ -421,7 +433,7 @@ boolean PubSubClient::write(uint8_t header, uint8_t* buf, uint16_t length, bool 
    }else{
 
       WRITE(buf+(4-llen),5+llen);
-      rc = _client->write(buf+(4-llen),5+llen);
+      rc = blockingSocketWrite(buf+(4-llen),5+llen);
       PRINTLN();
       
       lastOutActivity = millis();
@@ -482,8 +494,10 @@ void PubSubClient::disconnect() {
 
    buffer[0] = MQTTDISCONNECT;
    buffer[1] = 0;
-   _client->write(buffer,2);
-   _client->stop();
+   socket->writeByte(buffer[0]);
+   socket->writeByte(buffer[1]);
+   //TODO: better way to do this? writeStream?
+   socket->close();
    lastInActivity = lastOutActivity = millis();
 
    PRINTLN();
@@ -505,12 +519,50 @@ uint16_t PubSubClient::writeString(char* string, uint8_t* buf, uint16_t pos) {
 
 boolean PubSubClient::connected() {
    boolean rc;
-   if (_client == NULL ) {
+   if (socket == NULL) {
       rc = false;
    } else {
-      rc = (int)_client->connected();
-      if (!rc) _client->stop();
+      rc = socket->isConnected(ipstatus);
+      if (!rc) socket->close();
    }
    return rc;
 }
 
+
+size_t PubSubClient::blockingSocketWrite(uint8_t* buf, uint16_t length)
+{
+  //this basically ignores error checking
+  uint16_t bytes_written = 0;
+  uint16_t total_bytes_written = 0;
+  while (total_bytes_written != length)
+  {
+    bytes_written += socket->writeStream(buf, length); //, &status);
+    if (bytes_written)
+    {
+      total_bytes_written += bytes_written;
+    } else
+    {
+       //either no bytes written or an error?
+       //if IsIPStatusAnError(status)
+    }
+    DEIPcK::periodicTasks();
+  }
+  return total_bytes_written;
+}
+
+int PubSubClient::blockingConnect(const char *szRemoteHostName, uint16_t remotePort, TCPSocket& tcpSocket)
+{
+  int status = deIPcK.tcpConnect(szRemoteHostName, remotePort, tcpSocket);
+  while (!status)
+  {
+    DEIPcK::periodicTasks();
+    status = deIPcK.tcpConnect(szRemoteHostName, remotePort, tcpSocket);
+  }
+  return status; 
+}
+
+int PubSubClient::socket_available()
+{
+	DEIPcK::periodicTasks();
+	return socket->available();
+}

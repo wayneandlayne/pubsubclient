@@ -7,6 +7,7 @@
 #ifndef PubSubClient_h
 #define PubSubClient_h
 
+#include <DEIPcK.h>
 #include <Arduino.h>
 #include "Client.h"
 #include "Stream.h"
@@ -62,7 +63,6 @@
 
 class PubSubClient {
 private:
-   Client* _client;
    uint8_t buffer[MQTT_MAX_PACKET_SIZE];
    uint16_t nextMsgId;
    unsigned long lastOutActivity;
@@ -78,12 +78,15 @@ private:
    char* domain;
    uint16_t port;
    Stream* stream;
+   TCPSocket* socket;
+   IPSTATUS* ipstatus;
+   size_t blockingSocketWrite(uint8_t* buf, uint16_t length);
 public:
    PubSubClient();
-   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client);
-   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client, Stream&);
-   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client);
-   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client, Stream&);
+   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int), TCPSocket&);
+   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int), Stream&);
+   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int), TCPSocket&);
+   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int), Stream&);
    boolean connect(char *);
    boolean connect(char *, char *, char *);
    boolean connect(char *, char *, uint8_t, uint8_t, char *);
@@ -99,6 +102,8 @@ public:
    boolean unsubscribe(char *);
    boolean loop();
    boolean connected();
+   int blockingConnect(const char *szRemoteHostName, uint16_t remotePort, TCPSocket& tcpSocket);
+   int socket_available();
 };
 
 
