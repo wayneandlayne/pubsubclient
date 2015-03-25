@@ -80,6 +80,7 @@ private:
    Stream* stream;
    TCPSocket* socket;
    IPSTATUS* ipstatus;
+   size_t blockingSocketWrite(uint8_t* buf, uint16_t length);
 public:
    PubSubClient();
    PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int));

@@ -74,7 +74,7 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
       if (domain != NULL) {
         result = deIPcK.tcpConnect(this->domain, this->port, *socket);
       } else {
-        result = deIPcK.tcpConnect(this->ip, this->port, *socket);
+        result = deIPcK.tcpConnect((char*) this->ip, this->port, *socket);
       }
       
       if (result) {
@@ -155,7 +155,7 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
 
 uint8_t PubSubClient::readByte() {
    while(!socket->available()) {}
-   char c = _client->read();
+   char c = socket->readByte();
    PRINTCH(c, HEX);
    PRINTCH(',');
    return c;
@@ -233,7 +233,7 @@ boolean PubSubClient::loop() {
             buffer[0] = MQTTPINGREQ;
             buffer[1] = 0;
             // PRINTLNF("sending MQTTPINGREQ");
-            _client->write(buffer,2);
+            blockingSocketWrite(buffer,2);
             lastOutActivity = t;
             lastInActivity = t;
             pingOutstanding = true;
@@ -267,7 +267,7 @@ boolean PubSubClient::loop() {
                     buffer[2] = (msgId >> 8);
                     buffer[3] = (msgId & 0xFF);
                     // PRINTLNF("sending MQTTPUBACK");
-                    _client->write(buffer,4);
+                    blockingSocketWrite(buffer,4);
                     lastOutActivity = t;
 
                   } else {
@@ -280,7 +280,7 @@ boolean PubSubClient::loop() {
                buffer[0] = MQTTPINGRESP;
                buffer[1] = 0;
                // PRINTLNF("sending MQTTPINGRESP");
-               _client->write(buffer,2);
+               blockingSocketWrite(buffer,2);
             } else if (type == MQTTPINGRESP) {
                // PRINTLNF("MQTTPINGRESP");
                pingOutstanding = false;
@@ -377,11 +377,11 @@ boolean PubSubClient::publish_P(char* topic, uint8_t* PROGMEM payload, unsigned 
    
    pos = writeString(topic,buffer,pos);
    
-   rc += _client->write(buffer,pos);
+   rc += blockingSocketWrite(buffer,pos);
    
    for (i=0;i<plength;i++) {
       char c = (char)pgm_read_byte_near(payload + i);
-      rc += _client->write(c);
+      rc += socket->writeByte(c);
    }
       
    PRINTLN();
@@ -420,7 +420,7 @@ boolean PubSubClient::write(uint8_t header, uint8_t* buf, uint16_t length, bool 
    if(sendData){
 
       WRITE(buf+(4-llen),length+1+llen);
-      rc = _client->write(buf+(4-llen),length+1+llen);
+      rc = blockingSocketWrite(buf+(4-llen),length+1+llen);
       PRINTLN();
 
       lastOutActivity = millis();
@@ -429,7 +429,7 @@ boolean PubSubClient::write(uint8_t header, uint8_t* buf, uint16_t length, bool 
    }else{
 
       WRITE(buf+(4-llen),5+llen);
-      rc = _client->write(buf+(4-llen),5+llen);
+      rc = blockingSocketWrite(buf+(4-llen),5+llen);
       PRINTLN();
       
       lastOutActivity = millis();
@@ -524,3 +524,23 @@ boolean PubSubClient::connected() {
    return rc;
 }
 
+
+size_t PubSubClient::blockingSocketWrite(uint8_t* buf, uint16_t length)
+{
+  //this basically ignores error checking
+  uint16_t bytes_written = 0;
+  uint16_t total_bytes_written = 0;
+  while (total_bytes_written != length)
+  {
+    bytes_written += socket->writeStream(buf, length); //, &status);
+    if (bytes_written)
+    {
+      total_bytes_written += bytes_written;
+    } else
+    {
+       //either no bytes written or an error?
+       //if IsIPStatusAnError(status)
+    }
+  }
+  return total_bytes_written;
+}
